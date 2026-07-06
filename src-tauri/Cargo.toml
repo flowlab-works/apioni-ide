@@ -1,0 +1,33 @@
+[package]
+name = "apioni-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Apioni IDE — Tauri desktop (xterm.js frontend, Rust PTY backend)."
+
+# Detach from the parent crates/ workspace: the Tauri app keeps its own lock/target
+# so the lean core crates' CI stays fast.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+portable-pty = "0.9"
+libc = "0.2"
+
+# This crate is its OWN workspace root (the empty [workspace] above), so the parent
+# repo's [profile.release] does NOT reach it — these must live here. Optimized native
+# build: LTO + single codegen unit + stripped. panic="unwind" on purpose — the PTY
+# code uses .lock().unwrap(), and panic="abort" would turn one poisoned lock into a
+# whole-app crash.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"

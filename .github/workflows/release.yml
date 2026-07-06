@@ -1,0 +1,98 @@
+# Apioni IDE — macOS desktop release (open-core).
+# Builds a universal (Apple Silicon + Intel) .app, signs + notarizes it, then
+# SEPARATELY notarizes + staples the .dmg wrapper (tauri-action staples only the
+# .app, so a dmg-level `spctl` check would reject an un-stapled .dmg — pitfall #38),
+# generates the tauri-updater artifacts, and publishes a GitHub Release.
+#
+# Trigger: push a tag like `desktop-v0.1.0`, or run manually.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   APPLE_CERTIFICATE              base64 of the "Developer ID Application" .p12
+#   APPLE_CERTIFICATE_PASSWORD     password for that .p12
+#   APPLE_SIGNING_IDENTITY         e.g. "Developer ID Application: NAME (TEAMID)"
+#   APPLE_ID                       Apple account email
+#   APPLE_PASSWORD                 app-specific password for notarization
+#   APPLE_TEAM_ID                  10-char Apple Team ID
+#   TAURI_SIGNING_PRIVATE_KEY      output of `pnpm tauri signer generate` (private key)
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD   its password (empty string if none)
+name: release-desktop
+
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: macos-14 # Apple Silicon; builds the universal target
+    permissions:
+      contents: write # create the release + upload assets
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Rust (universal targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install workspace deps (pnpm workspace root)
+        run: pnpm install --frozen-lockfile
+
+      # Build + sign + notarize (.app) + create the draft release with assets + updater json.
+      - name: Build, sign, notarize, release
+        uses: tauri-apps/tauri-action@v0
+        id: tauri
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          args: --target universal-apple-darwin
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-v{0}', github.run_number) }}
+          releaseName: "Apioni IDE ${{ github.ref_name }}"
+          releaseDraft: true
+          includeUpdaterJson: true
+
+      # dmg-level notarization + staple (the gap tauri-action leaves). Re-upload the
+      # stapled dmg over the one the action attached, then verify Gatekeeper accepts it.
+      - name: Notarize + staple the .dmg
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-v{0}', github.run_number) }}
+        run: |
+          set -euo pipefail
+          DMG=$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' | head -n1)
+          if [ -z "$DMG" ]; then echo "no .dmg found"; exit 1; fi
+          echo "dmg: $DMG"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          spctl -a -t open --context context:primary-signature -vv "$DMG" || true
+          gh release upload "$TAG" "$DMG" --clobber
+
+      - name: Summary
+        run: echo "Released. Remember to un-draft the release once smoke-tested on a clean machine."
