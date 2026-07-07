@@ -45,7 +45,7 @@
       "endpoints": [
         "https://github.com/flowlab-works/apioni-ide/releases/latest/download/latest.json"
       ],
-      "pubkey": "REPLACE_WITH_TAURI_SIGNER_PUBLIC_KEY"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUwRDc1NURGMDJDOTM3QTQKUldTa044a0MzMVhYNEdDTE5qeXlOU1hKdldMOWpRdXB1UHlBeW0vZmdaZFlFc3BQdGR4Y3FpRTIK"
     }
   }
 }
