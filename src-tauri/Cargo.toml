@@ -18,6 +18,10 @@ tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 portable-pty = "0.9"
+
+# killpg/SIGKILL for process-group teardown — Unix only (Windows tears the tree
+# down via ConPTY close + child kill).
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 # This crate is its OWN workspace root (the empty [workspace] above), so the parent

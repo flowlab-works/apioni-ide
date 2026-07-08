@@ -21,9 +21,11 @@ use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{
-    AppHandle, Emitter, Manager, State, TitleBarStyle, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, Wry,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry,
 };
+// The Overlay title-bar style is a macOS-only builder API.
+#[cfg(target_os = "macos")]
+use tauri::TitleBarStyle;
 
 static WIN_SEQ: AtomicU32 = AtomicU32::new(1);
 // PTY ids are assigned by the backend so they are unique across ALL windows.
@@ -51,9 +53,12 @@ struct Sessions(Mutex<HashMap<u32, Session>>);
 /// Kill a shell's whole foreground process group (so vim / dev-servers / etc. die
 /// with it), then reap the zombie. Best-effort — a closing pane must never panic.
 fn reap(mut session: Session) {
+    // Unix: the PTY shell is its own session/group leader (pgid == pid), so signalling
+    // the group also takes down its foreground descendants; killing only the pid would
+    // orphan them. On Windows there is no process group here — closing the ConPTY and
+    // killing the child (below) tears the tree down.
+    #[cfg(unix)]
     if let Some(pid) = session.child.process_id() {
-        // The PTY shell is its own session/group leader (pgid == pid), so this also
-        // takes down its foreground descendants; killing only the pid would orphan them.
         unsafe {
             libc::killpg(pid as i32, libc::SIGKILL);
         }
@@ -152,19 +157,24 @@ fn pty_attach(
 #[tauri::command]
 fn popout_pane(app: AppHandle, id: u32) {
     let n = WIN_SEQ.fetch_add(1, Ordering::Relaxed);
-    let _ = WebviewWindowBuilder::new(
+    // `mut` is used only on macOS (the cfg block below); harmless elsewhere.
+    #[allow(unused_mut)]
+    let mut b = WebviewWindowBuilder::new(
         &app,
         format!("win-{n}"),
         WebviewUrl::App(format!("index.html?attach={id}").into()),
     )
     .title("Apioni IDE")
     .inner_size(1100.0, 760.0)
-    // Unified titlebar: traffic lights overlay the content, no title bar / text.
-    .title_bar_style(TitleBarStyle::Overlay)
-    .hidden_title(true)
     // Let the DOM receive `drop` (otherwise WRY's native handler eats it).
-    .disable_drag_drop_handler()
-    .build();
+    .disable_drag_drop_handler();
+    // macOS: traffic lights overlay the content, no title bar / text. Windows and
+    // Linux use their native window controls.
+    #[cfg(target_os = "macos")]
+    {
+        b = b.title_bar_style(TitleBarStyle::Overlay).hidden_title(true);
+    }
+    let _ = b.build();
 }
 
 #[tauri::command]
@@ -361,18 +371,21 @@ fn main() {
             let id = event.id().0.clone();
             if id == "new_window" {
                 let n = WIN_SEQ.fetch_add(1, Ordering::Relaxed);
-                let _ = WebviewWindowBuilder::new(
+                #[allow(unused_mut)]
+                let mut b = WebviewWindowBuilder::new(
                     app,
                     format!("win-{n}"),
                     WebviewUrl::App("index.html".into()),
                 )
                 .title("Apioni IDE")
                 .inner_size(1280.0, 820.0)
-                .title_bar_style(TitleBarStyle::Overlay)
-                .hidden_title(true)
                 // Let the DOM receive `drop` (otherwise WRY's native handler eats it).
-                .disable_drag_drop_handler()
-                .build();
+                .disable_drag_drop_handler();
+                #[cfg(target_os = "macos")]
+                {
+                    b = b.title_bar_style(TitleBarStyle::Overlay).hidden_title(true);
+                }
+                let _ = b.build();
                 return;
             }
             // Route to ONLY the focused window. `emit` is global in Tauri 2, so we
