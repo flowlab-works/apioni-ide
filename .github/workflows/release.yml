@@ -95,6 +95,20 @@ jobs:
           spctl -a -t open --context context:primary-signature -vv "$DMG" || true
           gh release upload "$TAG" "$DMG" --clobber
 
+      # Also publish a version-less copy so the website can link to a stable URL:
+      #   https://github.com/flowlab-works/apioni-ide/releases/latest/download/Apioni-IDE_universal.dmg
+      # (`latest/download/<name>` 302s straight to the file, so the landing "Download"
+      # button downloads the .dmg directly and never needs editing on a version bump.)
+      - name: Publish stable-named dmg for the website
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-v{0}', github.run_number) }}
+        run: |
+          set -euo pipefail
+          DMG=$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' | head -n1)
+          cp "$DMG" "Apioni-IDE_universal.dmg"
+          gh release upload "$TAG" "Apioni-IDE_universal.dmg" --clobber
+
       # Bump the Homebrew cask (flowlab-works/homebrew-apioni) to this version + sha.
       # Needs a repo secret HOMEBREW_TAP_TOKEN = a PAT with write access to the tap
       # (the built-in GITHUB_TOKEN can't push to another repo). Skips cleanly if unset.
