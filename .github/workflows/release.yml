@@ -61,15 +61,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # target = the Tauri build arg. universal-apple-darwin is a Tauri meta
+          # target (lipo of both arch slices), NOT a rustup target — so rust_targets
+          # lists the real rustup targets to install for the toolchain.
           - platform: macos-14 # Apple Silicon; builds the universal target
             os: macos
             target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
           - platform: windows-latest
             os: windows
             target: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
           - platform: ubuntu-22.04
             os: linux
             target: x86_64-unknown-linux-gnu
+            rust_targets: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.platform }}
     permissions:
       contents: write # create the release + upload assets
@@ -89,12 +95,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-
-      # The universal-apple-darwin target is a lipo of both arch slices.
-      - name: Add macOS arch targets
-        if: matrix.os == 'macos'
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          targets: ${{ matrix.rust_targets }}
 
       - uses: swatinem/rust-cache@v2
         with:
