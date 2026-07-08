@@ -13,6 +13,21 @@ type CreateEditor = typeof import("./editor").createEditor;
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 
+// Platform, read from the webview userAgent (reliable in Tauri: WKWebView on
+// macOS, WebView2 on Windows, WebKitGTK on Linux). Drives two macOS-only bits:
+//   1. the traffic-light inset on the tab bar (`[data-os="macos"] #tabbar`);
+//   2. the Korean/CJK IME bridge below — it rewrites xterm's raw input paths to
+//      work around WKWebView's missing composition events. WebView2 and WebKitGTK
+//      fire composition events normally, so xterm handles IME on its own there;
+//      running the bridge on Windows/Linux would BREAK composition instead.
+const OS: "macos" | "windows" | "linux" = /Mac/.test(navigator.userAgent)
+  ? "macos"
+  : /Win/.test(navigator.userAgent)
+    ? "windows"
+    : "linux";
+const IS_MAC = OS === "macos";
+document.documentElement.dataset.os = OS;
+
 interface FileEntry {
   name: string;
   path: string;
@@ -303,7 +318,9 @@ class Pane {
     } catch {
       /* WebGL unavailable → xterm falls back to the canvas/DOM renderer */
     }
-    this.installKoreanImeBridge();
+    // WKWebView-only workaround; WebView2/WebKitGTK fire composition events, so
+    // xterm handles IME natively there and the bridge would only get in the way.
+    if (IS_MAC) this.installKoreanImeBridge();
   }
 
   /**

@@ -1,6 +1,6 @@
 [package]
 name = "apioni-desktop"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Apioni IDE — Tauri desktop (xterm.js frontend, Rust PTY backend)."
 

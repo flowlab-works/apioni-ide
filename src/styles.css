@@ -35,12 +35,17 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  /* Unified titlebar: compact height with tabs vertically centered on the macOS
-     traffic-light dots; left pad clears the buttons; empty areas drag the window. */
+  /* Unified titlebar: compact tab strip; empty areas drag the window. On macOS
+     the window uses the Overlay title-bar style, so the left pad below clears the
+     traffic-light dots. Windows/Linux draw native window controls (top-right,
+     above this strip), so they get no left inset. */
   height: 28px;
-  padding: 0 8px 0 82px;
+  padding: 0 8px;
   background: var(--bg);
   user-select: none;
+}
+:root[data-os="macos"] #tabbar {
+  padding-left: 82px;
 }
 .tab {
   display: flex;
