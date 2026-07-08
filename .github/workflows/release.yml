@@ -95,5 +95,26 @@ jobs:
           spctl -a -t open --context context:primary-signature -vv "$DMG" || true
           gh release upload "$TAG" "$DMG" --clobber
 
+      # Bump the Homebrew cask (flowlab-works/homebrew-apioni) to this version + sha.
+      # Needs a repo secret HOMEBREW_TAP_TOKEN = a PAT with write access to the tap
+      # (the built-in GITHUB_TOKEN can't push to another repo). Skips cleanly if unset.
+      - name: Bump Homebrew cask
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        continue-on-error: true
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_TOKEN:-}" ]; then echo "HOMEBREW_TAP_TOKEN not set — skipping cask bump"; exit 0; fi
+          VERSION="${GITHUB_REF_NAME#desktop-v}"
+          DMG=$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' | head -n1)
+          SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/flowlab-works/homebrew-apioni.git" /tmp/tap
+          cd /tmp/tap
+          sed -i '' -E "s/^  version \".*\"/  version \"${VERSION}\"/; s/^  sha256 \".*\"/  sha256 \"${SHA}\"/" Casks/apioni.rb
+          git config user.name "apioni-ci"; git config user.email "ci@apioni.com"
+          git commit -am "apioni ${VERSION}"
+          git push
+
       - name: Summary
         run: echo "Released. Remember to un-draft the release once smoke-tested on a clean machine."
