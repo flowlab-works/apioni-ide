@@ -5,7 +5,7 @@
 **A fast, native terminal for AI CLIs.**
 Run Claude Code, Codex, and friends in a lightweight app with an editor, splits, and pop-out panes.
 
-`apioni.com/ide` · macOS · Apache-2.0
+`apioni.com/ide` · macOS · Windows · Linux · Apache-2.0
 
 </div>
 

@@ -6,14 +6,14 @@
 # Update `version` and `sha256` on each release. Get the sha with:
 #   shasum -a 256 "Apioni IDE_<version>_universal.dmg"
 cask "apioni" do
-  version "0.1.0"
-  sha256 "REPLACE_WITH_DMG_SHA256"
+  version "0.1.1"
+  sha256 "ac3a7353ea366ce1c1a181d066909b6b022643639673408a2b546422a62368ae"
 
   url "https://github.com/flowlab-works/apioni-ide/releases/download/desktop-v#{version}/Apioni.IDE_#{version}_universal.dmg",
       verified: "github.com/flowlab-works/apioni-ide/"
   name "Apioni IDE"
-  desc "Terminal-first agentic IDE that supervises your Claude Code/Codex"
-  homepage "https://ide.apioni.com/"
+  desc "Lightweight terminal for running AI CLIs"
+  homepage "https://apioni.com/ide"
 
   depends_on macos: ">= :big_sur"
 

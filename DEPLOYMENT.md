@@ -1,93 +1,87 @@
-# Apioni IDE — Deployment (macOS, open-core)
+# Apioni IDE — Deployment
 
-How the desktop app ships: **Developer-ID-signed + notarized `.dmg` on GitHub
-Releases, distributed via the landing page + a Homebrew tap, with in-app
-auto-update (tauri-updater).** Everything below is wired in the repo; the items
-under **Founder one-time setup** need your Apple account / decisions before the
-first release can go out.
+This is the public, open-core desktop client (Apache-2.0). It ships as installers
+on GitHub Releases, linked from the landing page and a Homebrew tap, with in-app
+auto-update on macOS.
 
-The distribution model (why): see [`../ai-orch worknplay note`] / the marketing
-decision — open-core, GitHub public repo is the P0 distribution channel, signing
-is non-optional (Gatekeeper blocks an unsigned app).
+Platforms per release:
+
+- **macOS** — universal (Apple Silicon and Intel), Developer-ID signed and notarized, `.dmg`.
+- **Windows** — x64 NSIS installer (`.exe`). Unsigned (no Authenticode cert), so SmartScreen shows a one-time "More info" then "Run anyway".
+- **Linux** — x86_64 AppImage.
+
+Auto-update (tauri-updater) runs on macOS. Windows and Linux update by downloading
+the latest build.
 
 ---
 
-## What's already set up in this repo
+## What's wired in this repo
 
 | File | Purpose |
 |---|---|
-| `LICENSE` | Apache-2.0 (open-core desktop client) |
-| `.github/workflows/release.yml` | Tag `desktop-v*` → universal build → sign → notarize → **staple the .dmg separately** → GitHub Release + `latest.json` |
-| `src-tauri/tauri.conf.json` | `createUpdaterArtifacts: true` + `plugins.updater` (endpoint + pubkey slot) |
-| `src-tauri/Cargo.toml` / `src/main.rs` | `tauri-plugin-updater` wired |
+| `LICENSE` | Apache-2.0 |
+| `.github/workflows/release.yml` | Tag `desktop-v*` → build matrix (macOS universal / Windows / Linux) → macOS sign + notarize + staple the `.dmg` separately (pitfall #38) → GitHub Release with versioned + stable-named assets → macOS `latest.json` |
+| `src-tauri/tauri.conf.json` | `createUpdaterArtifacts: true`, `plugins.updater` endpoint + the real pubkey |
+| `src-tauri/Cargo.toml` / `src/main.rs` | `tauri-plugin-updater` wired; macOS-only window/PTY APIs are `cfg`-guarded so Windows and Linux compile |
 | `src-tauri/capabilities/default.json` | `updater:default` permission |
-| `src/main.ts` | startup update check (main window only; inert until configured) |
-| `packaging/homebrew/apioni.rb` | Homebrew Cask (goes in the tap repo) |
+| `src/main.ts` | startup update check (main window only) |
+| `packaging/homebrew/apioni.rb` | Homebrew Cask reference (the live copy lives in the tap repo) |
 
----
-
-## Founder one-time setup (do these before the first release)
-
-### 1. Apple signing (you have the Developer Program)
-- Export your **"Developer ID Application"** cert as a `.p12`, then base64 it:
-  `base64 -i cert.p12 | pbcopy`
-- Create an **app-specific password** at appleid.apple.com (for notarization).
-- Add these repo secrets (Settings → Secrets and variables → Actions):
-  `APPLE_CERTIFICATE` (the base64), `APPLE_CERTIFICATE_PASSWORD`,
-  `APPLE_SIGNING_IDENTITY` (`Developer ID Application: NAME (TEAMID)`),
-  `APPLE_ID`, `APPLE_PASSWORD` (app-specific), `APPLE_TEAM_ID`.
-
-### 2. Updater signing key
-- `cd apps/desktop && pnpm tauri signer generate -w ~/.tauri/apioni-updater.key`
-- Put the **public** key into `tauri.conf.json` → `plugins.updater.pubkey`
-  (replace `REPLACE_WITH_TAURI_SIGNER_PUBLIC_KEY`).
-- Add the **private** key + its password as repo secrets
-  `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-- ⚠️ Never commit the private key. `~/.tauri/*.key` stays local.
-
-### 3. Repo visibility / open-core split  ← the one structural decision
-This is a **monorepo**: `apps/desktop` (OSS client) + `apps/web` (the **paid**
-Review Console) + `apps/mobile` + `crates/` + `packages/protocol`. Making the
-whole repo public would expose the paid cloud code and the business docs.
-
-Recommended: **publish the open core as a separate public repo** containing only
-`apps/desktop`, `crates/apioni-core`, `crates/apioni-terminal`, `packages/protocol`
-(the client + shared brain), and keep this monorepo (with `apps/web` + cloud +
-`docs/`) **private**. Move `release.yml` + `LICENSE` + `packaging/` into the
-public repo. Alternative: keep everything private and ship signed DMGs from
-private-repo releases — but you lose the P0 "public repo = star/trust gate"
-channel, so this is not recommended for the launch.
-> Decide this before flipping anything to public. Nothing here forces it.
-
-### 4. Domain + landing
-- Point `apioni.com/ide` at the landing (Vercel). The landing's download button
-  links to the latest GitHub Release `.dmg`; the Show HN submission URL is the
-  landing (no login, demo autoplay above the fold).
+Configured GitHub secrets: Apple signing (`APPLE_CERTIFICATE`,
+`APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+`APPLE_PASSWORD`, `APPLE_TEAM_ID`) and updater signing
+(`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Optional:
+`HOMEBREW_TAP_TOKEN` (a PAT with write access to the tap) auto-bumps the cask;
+without it the cask-bump step skips and you bump the tap by hand (below).
 
 ---
 
 ## Cutting a release
+
 ```bash
-# bump version in apps/desktop/src-tauri/tauri.conf.json + Cargo.toml + package.json
-git tag desktop-v0.1.0 && git push origin desktop-v0.1.0
+# bump the version in all three, keeping them in sync:
+#   src-tauri/tauri.conf.json   src-tauri/Cargo.toml   package.json
+git tag desktop-v<version> && git push origin desktop-v<version>
 ```
-CI builds the universal `.app`, signs + notarizes it, notarizes + **staples the
-.dmg** (tauri-action staples only the `.app` — pitfall #38), attaches the `.dmg`
-+ `latest.json` to a **draft** release. Un-draft after the clean-machine check.
+
+CI runs the `verify-version` guard (tag must equal the Tauri and Cargo versions),
+then builds all three platforms into a **draft** release. macOS is signed,
+notarized, and the `.dmg` is stapled; the `latest.json` updater manifest is
+generated on macOS only. Each platform also uploads a version-less copy so the
+landing links to stable URLs:
+
+- `releases/latest/download/Apioni-IDE_universal.dmg`
+- `releases/latest/download/Apioni-IDE_x64-setup.exe`
+- `releases/latest/download/Apioni-IDE_x86_64.AppImage`
+
+Verify (below), then publish as a normal (non-prerelease) release so it becomes
+`latest`:
+
+```bash
+gh release edit desktop-v<version> --draft=false --latest
+```
 
 ## Homebrew tap
-1. Create repo `flowlab-works/homebrew-apioni`, add `Casks/apioni.rb` from
-   `packaging/homebrew/apioni.rb`.
-2. Per release, update `version` + `sha256` (`shasum -a 256 <dmg>`).
-3. Users: `brew install --cask flowlab-works/apioni/apioni`.
-   (Submit to official homebrew-cask once the app clears notability.)
 
-## Verify (do NOT skip — build green ≠ notarized)
-On a **clean Mac / fresh user account**, download the `.dmg` and run:
+Tap repo: `flowlab-works/homebrew-apioni`. Users install with
+`brew install --cask flowlab-works/apioni/apioni`.
+
+Per release, if `HOMEBREW_TAP_TOKEN` is not set, bump the cask by hand:
+
+```bash
+# in flowlab-works/homebrew-apioni, edit Casks/apioni.rb:
+#   version "<version>"
+#   sha256 "<shasum -a 256 of Apioni.IDE_<version>_universal.dmg>"
+```
+
+## Verify (build green is not the same as notarized)
+
+macOS, on the downloaded `.dmg`:
+
 ```bash
 spctl -a -t open --context context:primary-signature -vv <dmg>   # → accepted
-xcrun stapler validate <dmg>                                     # → validated
-xcrun stapler validate "/Applications/Apioni IDE.app"           # after install
+xcrun stapler validate <dmg>                                      # → validated
 ```
-Then double-click to install and confirm no "unidentified developer" / "damaged"
-prompt. Only then un-draft the GitHub Release.
+
+Then install and confirm no "unidentified developer" or "damaged" prompt before
+publishing. Windows and Linux are unsigned; smoke-test by launching on each OS.
